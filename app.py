@@ -21,9 +21,19 @@ mode = st.radio("Model biznesowy", ["E-commerce (BEP)", "Usługi (Lead Generatio
 
 # --- SEKCJA 1: PARAMETRY OPERACYJNE ---
 with st.expander("1. Konfiguracja budżetu i kosztów", expanded=True):
-    col_a, col_b = st.columns(2)
+    col_a, col_b, col_c = st.columns(3)
     budzet = col_a.number_input("Budżet reklamowy (netto)", min_value=0.0, value=5000.0, step=500.0)
     koszt_obslugi = col_b.number_input("Koszt obsługi / agencji (netto)", min_value=0.0, value=2000.0, step=100.0)
+    
+    # NOWA ZAKŁADKA ABONAMENT
+    abonament_opcje = ["nie dotyczy", "0 zł", "49 zł", "199 zł", "3000 zł"]
+    wybrany_abonament = col_c.selectbox("Abonament (miesięcznie)", abonament_opcje)
+    
+    # Konwersja wyboru na liczbę
+    if wybrany_abonament == "nie dotyczy":
+        koszt_abonamentu = 0.0
+    else:
+        koszt_abonamentu = float(wybrany_abonament.replace(" zł", ""))
 
 if mode == "E-commerce (BEP)":
     with st.expander("2. Parametry sprzedaży i ROAS", expanded=True):
@@ -41,7 +51,8 @@ if mode == "E-commerce (BEP)":
     be_roas = 1 / marza_po_kosztach_proc if marza_po_kosztach_proc > 0 else 0
     przychod_symulowany = budzet * docelowy_roas
     liczba_zamowien = przychod_symulowany / srednia_wartosc_zamowienia if srednia_wartosc_zamowienia > 0 else 0
-    dochod_brutto_firmy = (przychod_symulowany * marza_po_kosztach_proc) - budzet - koszt_obslugi - (liczba_zamowien * koszt_opakowania)
+    # Odliczamy abonament od dochodu
+    dochod_brutto_firmy = (przychod_symulowany * marza_po_kosztach_proc) - budzet - koszt_obslugi - koszt_abonamentu - (liczba_zamowien * koszt_opakowania)
 
 else:
     with st.expander("2. Parametry lejka sprzedażowego", expanded=True):
@@ -53,8 +64,9 @@ else:
     liczba_leadow = budzet / docelowy_cpl
     liczba_klientow = liczba_leadow * (skutecznosc_sprzedazy / 100)
     przychod_symulowany = liczba_klientow * wartosc_leada
-    dochod_brutto_firmy = przychod_symulowany - budzet - koszt_obslugi
-    be_cpl = ((wartosc_leada * (skutecznosc_sprzedazy / 100)) * (budzet / (budzet + koszt_obslugi)) if (budzet + koszt_obslugi) > 0 else 0)
+    # Odliczamy abonament od dochodu
+    dochod_brutto_firmy = przychod_symulowany - budzet - koszt_obslugi - koszt_abonamentu
+    be_cpl = ((wartosc_leada * (skutecznosc_sprzedazy / 100)) * (budzet / (budzet + koszt_obslugi + koszt_abonamentu)) if (budzet + koszt_obslugi + koszt_abonamentu) > 0 else 0)
     be_roas = 0
 
 # --- SEKCJA 2: PODATKI I ZUS ---
@@ -64,7 +76,6 @@ with st.expander("3. Podatki i ZUS", expanded=True):
     forma_opodatkowania = col_p.selectbox("Forma opodatkowania", ["Skala podatkowa", "Podatek liniowy", "Ryczałt"])
     
     if forma_opodatkowania == "Skala podatkowa":
-        # Zmiana suwaka na listę wyboru (selectbox)
         stawka_podatku = st.selectbox("Wybierz próg podatkowy (%)", [12, 32], index=0)
     elif forma_opodatkowania == "Podatek liniowy":
         stawka_podatku = 19
@@ -100,9 +111,9 @@ else:
 y_vals = []
 for x in x_range:
     if mode == "E-commerce (BEP)":
-        d_br = (budzet * x * marza_po_kosztach_proc) - budzet - koszt_obslugi - ((budzet * x / srednia_wartosc_zamowienia) * koszt_opakowania)
+        d_br = (budzet * x * marza_po_kosztach_proc) - budzet - koszt_obslugi - koszt_abonamentu - ((budzet * x / srednia_wartosc_zamowienia) * koszt_opakowania)
     else:
-        d_br = (x / docelowy_cpl * (skutecznosc_sprzedazy / 100) * wartosc_leada) - x - koszt_obslugi
+        d_br = (x / docelowy_cpl * (skutecznosc_sprzedazy / 100) * wartosc_leada) - x - koszt_obslugi - koszt_abonamentu
     d_nt = max(0, d_br - zus_wartosc) * (1 - (stawka_podatku / 100))
     y_vals.append(d_nt)
 
@@ -115,4 +126,5 @@ st.plotly_chart(fig, use_container_width=True)
 with st.expander("Szczegóły obciążeń"):
     st.write(f"- Składki ZUS: {zus_wartosc} PLN")
     st.write(f"- Podatek dochodowy ({stawka_podatku}%): {round(podatek_kwota, 2)} PLN")
-    st.write(f"- Koszty stałe operacyjne (Budżet + Obsługa): {budzet + koszt_obslugi} PLN")
+    st.write(f"- Abonament: {koszt_abonamentu} PLN")
+    st.write(f"- Koszty stałe operacyjne (Budżet + Obsługa + Abonament): {budzet + koszt_obslugi + koszt_abonamentu} PLN")
