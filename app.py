@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 # Konfiguracja strony
 st.set_page_config(page_title="Kalkulator progów rentowności", layout="wide")
 
-# Stylizacja
+# Stylizacja dla lepszego widoku mobilnego
 st.markdown("""
     <style>
     .stMetric { border: 1px solid #e6e9ef; padding: 15px; border-radius: 5px; background-color: #f8f9fb; }
@@ -16,6 +16,7 @@ st.markdown("""
 
 st.title("Kalkulator progów rentowności")
 
+# WYBÓR TRYBU NA GÓRZE
 mode = st.radio("Model biznesowy", ["E-commerce (BEP)", "Usługi (Lead Generation)"], horizontal=True)
 
 # --- SEKCJA 1: PARAMETRY OPERACYJNE ---
@@ -63,47 +64,19 @@ with st.expander("3. Podatki i ZUS", expanded=True):
     forma_opodatkowania = col_p.selectbox("Forma opodatkowania", ["Skala podatkowa", "Podatek liniowy", "Ryczałt"])
     
     if forma_opodatkowania == "Skala podatkowa":
-        dochod_roczny_bazowy = st.number_input("Twój dochód roczny netto przed tą kampanią (PLN)", min_value=0.0, value=0.0, step=1000.0, help="Potrzebne do wyliczenia czy przekraczasz próg 120 tys. PLN")
-        
-        # Logika wyliczenia podatku dla skali
-        def licz_podatek_skala(nowy_dochod, baza):
-            suma = baza + nowy_dochod
-            prog = 120000
-            podatek = 0
-            
-            # Jeśli już baza przekracza próg
-            if baza >= prog:
-                podatek = nowy_dochod * 0.32
-            # Jeśli suma przekracza próg, ale baza była poniżej
-            elif suma > prog:
-                czes_12 = prog - baza
-                czes_32 = suma - prog
-                podatek = (czes_12 * 0.12) + (czes_32 * 0.32)
-            # Jeśli całość w pierwszym progu
-            else:
-                podatek = nowy_dochod * 0.12
-            return podatek
-
-        stawka_opis = "Skala (12%/32%)"
+        # Zmiana suwaka na listę wyboru (selectbox)
+        stawka_podatku = st.selectbox("Wybierz próg podatkowy (%)", [12, 32], index=0)
     elif forma_opodatkowania == "Podatek liniowy":
         stawka_podatku = 19
-        stawka_opis = "Liniowy 19%"
+        st.info("Podatek liniowy: stała stawka 19%")
     else: # Ryczałt
         stawka_podatku = st.selectbox("Wybierz stawkę ryczałtu (%)", [2, 3, 5.5, 8.5, 10, 12, 14, 15, 17], index=3)
-        stawka_opis = f"Ryczałt {stawka_podatku}%"
 
 # Obliczenia końcowe
 zus_slownik = {"Ulga na start": 450, "ZUS preferencyjny": 1150, "Mały ZUS Plus / Normalny": 2150}
 zus_wartosc = zus_slownik[typ_zusu]
 dochod_po_zus = max(0, dochod_brutto_firmy - zus_wartosc)
-
-if forma_opodatkowania == "Skala podatkowa":
-    podatek_kwota = licz_podatek_skala(dochod_po_zus, dochod_roczny_bazowy)
-    efektywna_stawka = (podatek_kwota / dochod_po_zus * 100) if dochod_po_zus > 0 else 12.0
-else:
-    podatek_kwota = dochod_po_zus * (stawka_podatku / 100)
-    efektywna_stawka = stawka_podatku
-
+podatek_kwota = dochod_po_zus * (stawka_podatku / 100)
 zysk_na_czysto = dochod_po_zus - podatek_kwota
 
 st.divider()
@@ -119,7 +92,10 @@ else:
 
 # --- WYKRES ---
 st.subheader("Wizualizacja rentowności netto")
-x_range = np.linspace(0.1, max(be_roas * 1.5, 15), 50) if mode == "E-commerce (BEP)" else np.linspace(budzet * 0.5, budzet * 2.5, 20)
+if mode == "E-commerce (BEP)":
+    x_range = np.linspace(0.1, max(be_roas * 1.5, 15), 50)
+else:
+    x_range = np.linspace(budzet * 0.5, budzet * 2.5, 20)
 
 y_vals = []
 for x in x_range:
@@ -127,13 +103,8 @@ for x in x_range:
         d_br = (budzet * x * marza_po_kosztach_proc) - budzet - koszt_obslugi - ((budzet * x / srednia_wartosc_zamowienia) * koszt_opakowania)
     else:
         d_br = (x / docelowy_cpl * (skutecznosc_sprzedazy / 100) * wartosc_leada) - x - koszt_obslugi
-    
-    d_pz = max(0, d_br - zus_wartosc)
-    if forma_opodatkowania == "Skala podatkowa":
-        p_kw = licz_podatek_skala(d_pz, dochod_roczny_bazowy)
-    else:
-        p_kw = d_pz * (stawka_podatku / 100)
-    y_vals.append(d_pz - p_kw)
+    d_nt = max(0, d_br - zus_wartosc) * (1 - (stawka_podatku / 100))
+    y_vals.append(d_nt)
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(x=x_range, y=y_vals, mode='lines', name='Zysk Netto', line=dict(color='#28a745', width=3)))
@@ -142,8 +113,6 @@ fig.update_layout(template="plotly_white", height=400, margin=dict(l=0, r=0, t=2
 st.plotly_chart(fig, use_container_width=True)
 
 with st.expander("Szczegóły obciążeń"):
-    st.write(f"- Formuła opodatkowania: **{stawka_opis}**")
     st.write(f"- Składki ZUS: {zus_wartosc} PLN")
-    st.write(f"- Podatek dochodowy (wyliczony): {round(podatek_kwota, 2)} PLN")
-    if forma_opodatkowania == "Skala podatkowa":
-        st.write(f"- Średnia efektywna stawka podatku: {round(efektywna_stawka, 1)}%")
+    st.write(f"- Podatek dochodowy ({stawka_podatku}%): {round(podatek_kwota, 2)} PLN")
+    st.write(f"- Koszty stałe operacyjne (Budżet + Obsługa): {budzet + koszt_obslugi} PLN")
