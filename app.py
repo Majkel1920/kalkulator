@@ -19,7 +19,7 @@ st.title("Kalkulator progów rentowności")
 # WYBÓR TRYBU NA GÓRZE
 mode = st.radio("Model biznesowy", ["E-commerce (BEP)", "Usługi (Lead Generation)"], horizontal=True)
 
-# --- SEKCJA 1: PARAMETRY OPERACYJNE (W GŁÓWNYM WIDOKU) ---
+# --- SEKCJA 1: PARAMETRY OPERACYJNE ---
 with st.expander("1. Konfiguracja budżetu i kosztów", expanded=True):
     col_a, col_b = st.columns(2)
     budzet = col_a.number_input("Budżet reklamowy (netto)", min_value=0.0, value=5000.0, step=500.0)
@@ -57,6 +57,7 @@ else:
     przychod_symulowany = liczba_klientow * wartosc_leada
     dochod_brutto_firmy = przychod_symulowany - budzet - koszt_obslugi
     be_cpl = ((wartosc_leada * (skutecznosc_sprzedazy / 100)) * (budzet / (budzet + koszt_obslugi)) if (budzet + koszt_obslugi) > 0 else 0)
+    be_roas = 0 # Inicjalizacja dla wykresu
 
 # --- SEKCJA 2: PODATKI I ZUS ---
 with st.expander("3. Podatki i ZUS", expanded=True):
@@ -64,14 +65,13 @@ with st.expander("3. Podatki i ZUS", expanded=True):
     typ_zusu = col_z.selectbox("Rodzaj składek ZUS", ["Ulga na start", "ZUS preferencyjny", "Mały ZUS Plus / Normalny"])
     forma_opodatkowania = col_p.selectbox("Forma opodatkowania", ["Skala podatkowa", "Podatek liniowy", "Ryczałt"])
     
-    # Logika stawek podatkowych wg Twoich wytycznych
     if forma_opodatkowania == "Skala podatkowa":
         stawka_podatku = st.select_slider("Wybierz próg podatkowy (%)", options=[12, 32], value=12)
     elif forma_opodatkowania == "Podatek liniowy":
         stawka_podatku = 19
         st.info("Podatek liniowy: stała stawka 19%")
     else: # Ryczałt
-        stawka_podatku = st.selectbox("Wybierz stawkę ryczałtu (%)", [2, 3, 5.5, 8.5, 10, 12, 14, 15, 17])
+        stawka_podatku = st.selectbox("Wybierz stawkę ryczałtu (%)", [2, 3, 5.5, 8.5, 10, 12, 14, 15, 17], index=3)
 
 # Obliczenia końcowe
 zus_slownik = {"Ulga na start": 450, "ZUS preferencyjny": 1150, "Mały ZUS Plus / Normalny": 2150}
@@ -93,4 +93,29 @@ else:
 
 # --- WYKRES ---
 st.subheader("Wizualizacja rentowności netto")
-x_range = np.linspace(0.1, max(be_roas * 1.5, 15), 50) if mode == "E-commerce (BEP)" else np.linspace(
+# Naprawiona linia 96 (domknięcie nawiasów)
+if mode == "E-commerce (BEP)":
+    x_range = np.linspace(0.1, max(be_roas * 1.5, 15), 50)
+else:
+    x_range = np.linspace(budzet * 0.5, budzet * 2.5, 20)
+
+y_vals = []
+for x in x_range:
+    if mode == "E-commerce (BEP)":
+        d_br = (budzet * x * marza_po_kosztach_proc) - budzet - koszt_obslugi - ((budzet * x / srednia_wartosc_zamowienia) * koszt_opakowania)
+    else:
+        d_br = (x / docelowy_cpl * (skutecznosc_sprzedazy / 100) * wartosc_leada) - x - koszt_obslugi
+    d_nt = max(0, d_br - zus_wartosc) * (1 - (stawka_podatku / 100))
+    y_vals.append(d_nt)
+
+fig = go.Figure()
+fig.add_trace(go.Scatter(x=x_range, y=y_vals, mode='lines', name='Zysk Netto', line=dict(color='#28a745', width=3)))
+fig.add_hline(y=0, line_dash="dash", line_color="#dc3545")
+fig.update_layout(template="plotly_white", height=400, margin=dict(l=0, r=0, t=20, b=0))
+st.plotly_chart(fig, use_container_width=True)
+
+with st.expander("Szczegóły obciążeń"):
+    st.write(f"- Składki ZUS: {zus_wartosc} PLN")
+    st.write(f"- Podatek dochodowy ({stawka_podatku}%): {round(podatek_kwota, 2)} PLN")
+    st.write(f"- Koszty stałe operacyjne (Budżet + Obsługa): {budzet + koszt_obslugi} PLN")
+    
